@@ -356,24 +356,37 @@ This means `"NASA lands on MARS"` and `"nasa lands on mars"` produce the same ca
 
 Render runs your **API** and **worker**; it does **not** host a Temporal server. Use **Temporal Cloud** (or any reachable Temporal cluster) plus **PostgreSQL** and **Redis** (Render add-ons or external providers).
 
+### Option A: Single Web Service (Recommended - Free tier friendly)
+
+Run both the API and worker in **one** Render Web Service to save costs.
+
+**Service settings:**
+- **Type:** Web Service
+- **Build Command:** `npm install && npm run build`
+- **Start Command:** `npm run start:all`
+- **Health Check Path:** `/health`
+
+This uses `concurrently` to run both processes together:
+- Express API (handles HTTP requests)
+- Temporal worker (executes workflows)
+
+### Option B: Two Separate Services (Better for scaling)
+
+If you need independent scaling or high throughput:
+
+| | **Web Service** | **Background Worker** |
+|--|-----------------|----------------------|
+| **Build** | `npm install && npm run build` | Same |
+| **Start** | `npm start` | `npm run worker:prod` |
+| **Health** | `/health` | *(none)* |
+
 ### 1. Create backing services
 
 - **PostgreSQL** — Render Postgres *or* Neon/Supabase. Set `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_SSL=true` for managed TLS.
 - **Redis** — Render Key Value *or* Upstash. Set `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` if required, and `REDIS_TLS=true` when the provider requires TLS.
 - **Temporal** — In Temporal Cloud, copy the **gRPC endpoint** (e.g. `your-namespace.acct.tmprl.cloud:7233`), **namespace**, and **API key**. Set `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_API_KEY` (TLS is turned on automatically when the key is set).
 
-### 2. Two Render services (same repo)
-
-| | **Web Service** (HTTP) | **Background Worker** |
-|--|------------------------|-------------------------|
-| **Purpose** | Express API + static UI | Temporal worker |
-| **Build command** | `npm install && npm run build` | Same |
-| **Start command** | `npm start` | `npm run worker:prod` |
-| **Health check path** | `/health` | *(none — worker has no HTTP)* |
-
-Use **Node 20+**, set **Root Directory** to the repo root if needed, and attach the same **environment group** (or duplicate env vars) so both services share DB, Redis, Temporal, and LLM keys.
-
-### 3. Run migrations once
+### 2. Environment variables (same for both options)
 
 After Postgres exists, run:
 
@@ -383,14 +396,25 @@ npm run db:migrate
 
 Use Render **Shell** on the web service, or a **one-off job**, with the same `POSTGRES_*` env vars as production.
 
-### 4. Important env vars on Render
+Set these on your Render Web Service (or both services if using Option B):
 
 - `NODE_ENV=production`
-- `PORT` — Render sets this automatically on web services; your app already reads `process.env.PORT`.
-- `GROQ_API_KEY` / `OPENAI_API_KEY` (and `LLM_PROVIDER`) per `.env.example`.
-- **CORS** — With the default setup, the UI is served from the same Express app (`/public`), so browsers hit the same origin. If you host the UI elsewhere, relax CORS in `server.ts` for that origin.
+- `PORT` — Render sets this automatically
+- **Temporal Cloud:**
+  - `TEMPORAL_ADDRESS=ap-northeast-1.aws.api.temporal.io:7233` (or your region)
+  - `TEMPORAL_NAMESPACE=your-namespace.acct.tmprl.cloud`
+  - `TEMPORAL_API_KEY=eyJ...` (from Temporal Cloud dashboard)
+  - `TEMPORAL_TASK_QUEUE=news-verification-queue`
+- **PostgreSQL:** (Render Postgres or external)
+  - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+  - `POSTGRES_SSL=true`
+- **Redis:** (Render Redis or Upstash)
+  - `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_TLS=true` (if required)
+- **LLM:**
+  - `LLM_PROVIDER=groq` (or `openai`)
+  - `GROQ_API_KEY=gsk_...` (or `OPENAI_API_KEY`)
 
-### 5. Operational notes
+### 3. Run database migration once
 
 - Scale the **worker** if workflows queue up; Temporal distributes tasks across worker replicas.
 - Ensure the **task queue** name matches everywhere (`TEMPORAL_TASK_QUEUE`, default `news-verification-queue`).
