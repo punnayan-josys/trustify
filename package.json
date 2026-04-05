@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/api/server.js",
+    "start:all": "concurrently -n \"API,WORKER\" -c \"blue,green\" \"npm start\" \"npm run worker:prod\"",
     "dev": "ts-node-dev --respawn --transpile-only src/api/server.ts",
     "worker": "ts-node-dev --respawn --transpile-only src/workflows/worker.ts",
     "worker:prod": "node dist/workflows/worker.js",
@@ -28,6 +29,7 @@
     "@types/uuid": "^10.0.0",
     "axios": "^1.7.0",
     "cheerio": "^1.0.0",
+    "concurrently": "^9.2.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.19.0",
