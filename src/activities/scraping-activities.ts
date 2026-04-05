@@ -22,6 +22,7 @@ import { ScrapedNewsArticle, ScrapedFactCheckResult } from "../utils/shared-type
 import {
   fetchAndScrapeNewsFromRss,
   fetchFromDirectPublisherFeeds,
+  fetchFromWikipedia,
   fetchFactCheckResults,
 } from "../services/tinyfish-scraper";
 import { logger } from "../utils/logger";
@@ -189,22 +190,29 @@ export async function scrapeNewsSourcesActivity(
     directFeedKeywords.length > 0 ? directFeedKeywords : searchQueries;
 
   // Run every search query against Google News RSS in parallel,
-  // PLUS all direct publisher feeds — total latency = slowest single call.
-  const [googleResultBatches, directPublisherArticles] = await Promise.all([
-    Promise.allSettled(
-      searchQueries.map((query) =>
-        fetchAndScrapeNewsFromRss(query, MAX_NEWS_SOURCES)
-      )
-    ),
-    fetchFromDirectPublisherFeeds(keywordsForDirectFeeds, 3),
-  ]);
+  // PLUS all direct publisher feeds + Wikipedia for factual claims.
+  // Total latency = slowest single call.
+  const [googleResultBatches, directPublisherArticles, wikipediaArticles] =
+    await Promise.all([
+      Promise.allSettled(
+        searchQueries.map((query) =>
+          fetchAndScrapeNewsFromRss(query, MAX_NEWS_SOURCES)
+        )
+      ),
+      fetchFromDirectPublisherFeeds(keywordsForDirectFeeds, 3),
+      fetchFromWikipedia(searchQueries, 2),
+    ]);
 
   const googleNewsArticles = googleResultBatches.flatMap((result) =>
     result.status === "fulfilled" ? result.value : []
   );
 
   // Merge all articles and deduplicate by URL
-  const allArticles = [...googleNewsArticles, ...directPublisherArticles];
+  const allArticles = [
+    ...googleNewsArticles,
+    ...directPublisherArticles,
+    ...wikipediaArticles,
+  ];
   const seenUrls = new Set<string>();
   const deduplicatedArticles = allArticles.filter((article) => {
     const normalisedUrl = article.url.toLowerCase().replace(/\/$/, "");
@@ -216,6 +224,7 @@ export async function scrapeNewsSourcesActivity(
   logger.info("scrapeNewsSourcesActivity: complete", {
     googleNewsCount: googleNewsArticles.length,
     directPublisherCount: directPublisherArticles.length,
+    wikipediaCount: wikipediaArticles.length,
     totalAfterDedup: deduplicatedArticles.length,
   });
 

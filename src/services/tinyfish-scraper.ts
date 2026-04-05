@@ -441,6 +441,92 @@ const FACT_CHECK_SITE_SEARCH_URLS: readonly { site: string; searchUrlTemplate: s
   },
 ];
 
+// ─── Wikipedia API Scraper ────────────────────────────────────────────────────
+
+/**
+ * Fetches Wikipedia articles via Wikipedia's official REST API.
+ * Returns structured articles for encyclopedic/factual claims.
+ *
+ * Uses Wikipedia's search API + page content API for accurate, comprehensive results.
+ */
+export async function fetchFromWikipedia(
+  searchKeywords: string[],
+  maxResults: number = 3
+): Promise<ScrapedNewsArticle[]> {
+  const searchQuery = searchKeywords.join(" ");
+  const encodedQuery = encodeURIComponent(searchQuery);
+
+  // Wikipedia REST API v1 - search endpoint
+  const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodedQuery}&format=json&srlimit=${maxResults}`;
+
+  try {
+    const searchResponse = await axios.get(searchUrl, {
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: {
+        "User-Agent": "Truthify-Verifier/1.0 (https://truthify.app)",
+      },
+    });
+
+    const searchResults = searchResponse.data?.query?.search || [];
+    const articles: ScrapedNewsArticle[] = [];
+
+    for (const result of searchResults.slice(0, maxResults)) {
+      const pageId = result.pageid;
+      const title = result.title;
+
+      // Fetch page extract using Wikipedia API
+      const extractUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&pageids=${pageId}&format=json`;
+
+      try {
+        const extractResponse = await axios.get(extractUrl, {
+          timeout: REQUEST_TIMEOUT_MS,
+          headers: {
+            "User-Agent": "Truthify-Verifier/1.0 (https://truthify.app)",
+          },
+        });
+
+        const page = extractResponse.data?.query?.pages?.[pageId];
+        if (!page) continue;
+
+        const extract = page.extract || "";
+        const summary = extract.length > 500
+          ? extract.slice(0, 500) + "…"
+          : extract;
+
+        const articleUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
+
+        articles.push({
+          title: `Wikipedia: ${title}`,
+          url: articleUrl,
+          summary: summary || `Wikipedia article about ${title}`,
+          publishedAt: null,
+          sourceDomain: "wikipedia.org",
+        });
+      } catch (extractError) {
+        logger.debug("fetchFromWikipedia: failed to fetch page extract", {
+          pageId,
+          error: (extractError as Error).message,
+        });
+      }
+    }
+
+    logger.info("fetchFromWikipedia: complete", {
+      searchQuery,
+      articlesFound: articles.length,
+    });
+
+    return articles;
+  } catch (searchError) {
+    logger.warn("fetchFromWikipedia: search failed", {
+      searchQuery,
+      error: (searchError as Error).message,
+    });
+    return [];
+  }
+}
+
+// ─── Fact-Check Scraper ───────────────────────────────────────────────────────
+
 /**
  * Scrapes a single fact-check search result page.
  * Returns up to `maxResults` ScrapedFactCheckResult objects.
