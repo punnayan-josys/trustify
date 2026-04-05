@@ -227,20 +227,37 @@ export async function runVerificationOrchestrationPipeline(
   const rawSourcesAvailable = scoredNewsSources.length + scoredFactCheckSources.length;
   
   if (totalSourcesAvailable === 0 && rawSourcesAvailable === 0) {
-    logger.warn("LangChain orchestration: NO sources found — returning UNVERIFIED", {
+    logger.warn("LangChain orchestration: NO sources found — generating helpful response", {
       supportingCount: 0,
       factCheckCount: 0,
       claimCategory: claimUnderstanding.claimCategory,
     });
+    
+    // Generate a helpful, diplomatic response even when no sources found
+    const claimContext = claimUnderstanding.claimCategory || "general";
+    const entities = claimUnderstanding.extractedEntities?.join(", ") || "the subject";
+    
+    let helpfulReasoning = `We searched for information about "${headlineText.slice(0, 60)}${headlineText.length > 60 ? '...' : ''}" but couldn't find recent news coverage or authoritative sources that directly address this specific claim. `;
+    
+    if (claimContext === "sports_result") {
+      helpfulReasoning += `For sports results, official league websites or major sports news outlets would provide definitive confirmation. `;
+    } else if (claimContext === "office_holder") {
+      helpfulReasoning += `For current office holders, official government sources or recent news coverage would provide confirmation. `;
+    } else if (claimContext === "historical_fact") {
+      helpfulReasoning += `For historical facts, encyclopedic sources like Wikipedia or Britannica typically provide reliable information. `;
+    } else {
+      helpfulReasoning += `This may be a very recent development, a niche topic, or the claim may need to be rephrased for better search results. `;
+    }
+    
+    helpfulReasoning += `Consider checking official sources directly or providing more specific details about ${entities}.`;
+    
     return {
       claimUnderstanding,
       aggregatedEvidence,
       verdictOutput: {
         verdict: "UNVERIFIED" as VerificationVerdict,
-        confidenceScore: 0,
-        reasoning:
-          "No sources were found to verify this claim. " +
-          "Try rephrasing or providing more context.",
+        confidenceScore: 20,
+        reasoning: helpfulReasoning,
         supportingSources: [],
         contradictingSources: [],
       } satisfies VerdictBrainOutput,
