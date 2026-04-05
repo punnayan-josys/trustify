@@ -27,9 +27,9 @@ import {
 } from "../services/tinyfish-scraper";
 import { logger } from "../utils/logger";
 
-const MAX_NEWS_SOURCES = Number(process.env.SCRAPING_MAX_NEWS_SOURCES ?? 5);
+const MAX_NEWS_SOURCES = Number(process.env.SCRAPING_MAX_NEWS_SOURCES ?? 3);  // Reduced from 5
 const MAX_FACT_CHECK_SOURCES = Number(
-  process.env.SCRAPING_MAX_FACT_CHECK_SOURCES ?? 3
+  process.env.SCRAPING_MAX_FACT_CHECK_SOURCES ?? 2  // Reduced from 3
 );
 
 // ─── Activity: Decompose Claim into Multiple Search Queries ──────────────────
@@ -195,12 +195,12 @@ export async function scrapeNewsSourcesActivity(
   const [googleResultBatches, directPublisherArticles, wikipediaArticles] =
     await Promise.all([
       Promise.allSettled(
-        searchQueries.map((query) =>
+        searchQueries.slice(0, 3).map((query) =>  // Limit to 3 queries max
           fetchAndScrapeNewsFromRss(query, MAX_NEWS_SOURCES)
         )
       ),
-      fetchFromDirectPublisherFeeds(keywordsForDirectFeeds, 3),
-      fetchFromWikipedia(searchQueries, 2),
+      fetchFromDirectPublisherFeeds(keywordsForDirectFeeds, 2),  // Reduced from 3
+      fetchFromWikipedia(searchQueries.slice(0, 2), 2),  // Limit queries + results
     ]);
 
   const googleNewsArticles = googleResultBatches.flatMap((result) =>

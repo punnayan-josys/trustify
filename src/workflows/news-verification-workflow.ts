@@ -19,8 +19,8 @@
  *   - All I/O must go through activity calls
  *
  * Retry policy:
- *   - Scraping activities:     2 retries, 10s timeout
- *   - LangChain activity:      2 retries, 60s timeout (LLM may be slow)
+ *   - Scraping activities:     1 retry, 30s timeout (parallel HTTP needs time)
+ *   - LangChain activity:      1 retry, 45s timeout (Groq is fast)
  *   - Database/cache activities: 3 retries, 10s timeout
  */
 
@@ -44,27 +44,27 @@ import type {
 //
 // We create THREE proxy groups with different retry/timeout policies:
 //
-//   scrapingActivities   - 2 retries, 10s each (network-bound, often flaky)
-//   llmActivities        - 2 retries, 60s each (OpenAI can be slow)
-//   storageActivities    - 3 retries, 10s each (PostgreSQL/Redis, usually fast)
+//   scrapingActivities   - 1 retry, 30s each (many parallel HTTP requests)
+//   llmActivities        - 1 retry, 45s each (Groq is fast, <5s typical)
+//   storageActivities    - 3 retries, 10s each (PostgreSQL/Redis, fast)
 
 const SCRAPING_ACTIVITY_OPTIONS: ActivityOptions = {
-  startToCloseTimeout: "10 seconds",
+  startToCloseTimeout: "30 seconds",  // Increased: need time for parallel HTTP
   retry: {
-    maximumAttempts: 3,            // 1 initial + 2 retries
-    initialInterval: "1 second",
+    maximumAttempts: 2,            // Reduced retries (1 initial + 1 retry)
+    initialInterval: "2 seconds",
     backoffCoefficient: 2,
-    maximumInterval: "5 seconds",
+    maximumInterval: "8 seconds",
   },
 };
 
 const LLM_ACTIVITY_OPTIONS: ActivityOptions = {
-  startToCloseTimeout: "60 seconds",
+  startToCloseTimeout: "45 seconds",  // Reduced: Groq is fast
   retry: {
-    maximumAttempts: 3,
+    maximumAttempts: 2,            // Reduced retries
     initialInterval: "2 seconds",
     backoffCoefficient: 2,
-    maximumInterval: "10 seconds",
+    maximumInterval: "8 seconds",
   },
 };
 
