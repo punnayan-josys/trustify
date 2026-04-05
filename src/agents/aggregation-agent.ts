@@ -34,25 +34,29 @@ import { logger } from "../utils/logger";
 
 const AGGREGATION_SYSTEM_PROMPT = `You are a fact-checking editor. Classify news sources against a claim.
 
-For each source decide:
-1. Is it relevant to the EXACT claim? (same event + same entities + same year)
-2. If relevant, classify as: supporting / contradicting / neutral
-3. Give a relevanceScore 0-100 (omit sources below 30)
+TASK: For each source, classify how it relates to the claim.
 
-RELEVANT = directly addresses this exact claim. Drop: different year, different tournament, same person but unrelated story.
+CLASSIFICATION RULES:
+- supporting = confirms, agrees with, or provides evidence FOR the claim
+- contradicting = disputes, denies, or provides evidence AGAINST the claim  
+- neutral = mentions related topic but doesn't clearly support or contradict
 
-CLASSIFICATION:
-supporting    = confirms the claim ("CSK won", "clinched title", "crowned champions", "lifted trophy")
-contradicting = disputes it ("RCB won", "CSK knocked out", "eliminated", "fact-checked FALSE", "debunked")
-neutral       = relevant context but no clear verdict on the claim
+RELEVANCE SCORING (be GENEROUS, not strict):
+- 80-100: Directly about this exact claim
+- 60-79: About the same topic/entities, relevant context
+- 40-59: Tangentially related, useful background
+- Below 40: Unrelated, drop it
 
-EVIDENCE SUFFICIENCY: hasEnoughEvidence=true if at least 1 tier1/tier2 source is supporting/contradicting with relevanceScore>=50, OR any fact-check source exists.
+IMPORTANT: 
+- For basic factual claims (e.g., "X is president", "Y is a country"), Wikipedia and encyclopedia sources are HIGHLY relevant
+- For current events, recent news articles are relevant even if they don't use exact same words
+- DO NOT be overly strict - if a source mentions the key entities, include it
+- hasEnoughEvidence=true if ANY source has relevanceScore >= 50
 
-Return ONLY this JSON, no markdown:
+Return ONLY this JSON:
 {{"results":[{{"i":0,"c":"supporting","r":85}},{{"i":2,"c":"contradicting","r":70}}],"hasEnoughEvidence":true}}
 
-Keys: i=index, c=classification(supporting/contradicting/neutral), r=relevanceScore(30-100)
-Omit sources with relevanceScore<30.`;
+Keys: i=index, c=classification, r=relevanceScore(40-100)`;
 
 const AGGREGATION_HUMAN_TEMPLATE = `Claim: "{claim}"
 
@@ -145,8 +149,22 @@ function parseAggregationResponse(
             c: typeof item.c === "string" ? item.c : "neutral",
             r: typeof item.r === "number" ? Math.round(item.r) : 50,
           }))
-          .filter((item) => item.i >= 0 && item.i < allSources.length && item.r >= 30)
+          .filter((item) => item.i >= 0 && item.i < allSources.length && item.r >= 40)
       : [];
+    
+    // If LLM filtered everything, include all sources as neutral with default score
+    // This prevents over-aggressive filtering from breaking the pipeline
+    if (results.length === 0 && allSources.length > 0) {
+      logger.warn("AggregationAgent: LLM filtered all sources, using fallback", {
+        sourceCount: allSources.length,
+      });
+      return {
+        supportingSources: [],
+        contradictingSources: [],
+        neutralSources: allSources.map(s => ({ ...s, relevanceScore: 50 })),
+        hasEnoughEvidence: allSources.length > 0,
+      };
+    }
 
     const supporting: CredibilityScoredSource[] = [];
     const contradicting: CredibilityScoredSource[] = [];

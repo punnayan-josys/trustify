@@ -196,11 +196,41 @@ Claim: "Is Krebs cycle only aerobic?"
       }
     }
   } catch (err) {
-    logger.warn("decomposeClaimActivity: failed, using original headline", {
+    logger.warn("decomposeClaimActivity: LLM failed, using smart fallback", {
       errorMessage: (err as Error).message,
     });
   }
-  return [headline];
+  
+  // Smart fallback: generate basic queries from the headline
+  return generateFallbackQueries(headline);
+}
+
+/**
+ * Generate basic search queries when LLM decomposition fails.
+ * This ensures we always have multiple search angles even without LLM.
+ */
+function generateFallbackQueries(headline: string): string[] {
+  const queries: string[] = [];
+  const cleanHeadline = headline.trim();
+  
+  // Q1: Original claim as a question
+  queries.push(cleanHeadline);
+  
+  // Q2: Add "is it true" prefix for fact-checking
+  queries.push(`Is it true ${cleanHeadline.toLowerCase()}`);
+  
+  // Q3: Add "latest news" for current events
+  queries.push(`${cleanHeadline} latest news 2026`);
+  
+  // Q4: Add "fact check" for verification
+  queries.push(`${cleanHeadline} fact check verified`);
+  
+  logger.info("decomposeClaimActivity: using fallback queries", {
+    original: cleanHeadline.slice(0, 60),
+    queryCount: queries.length,
+  });
+  
+  return queries;
 }
 
 // ─── Activity: Scrape News Sources ───────────────────────────────────────────

@@ -213,14 +213,23 @@ export async function runVerificationOrchestrationPipeline(
     headlineText
   );
 
-  // ── Evidence Guard: short-circuit if no credible relevant evidence ────────
-  // If no tier1/tier2 sources survived the relevance filter and there are
-  // no fact-check results, skip the LLM entirely and return UNVERIFIED.
-  // This prevents the model from hallucinating verdicts from weak/noisy sources.
-  if (!aggregatedEvidence.hasEnoughEvidence) {
-    logger.warn("LangChain orchestration: insufficient evidence — returning UNVERIFIED early", {
-      supportingCount: aggregatedEvidence.supportingSources.length,
-      factCheckCount: aggregatedEvidence.factCheckSources.length,
+  // ── Evidence Guard: short-circuit ONLY if truly no sources ────────
+  // Previously this was too aggressive — it would skip the LLM even when
+  // sources existed but weren't classified as "high quality relevant".
+  // Now we only skip if there are literally ZERO sources to analyze.
+  // The VerdictBrainAgent is smart enough to handle low-quality sources.
+  const totalSourcesAvailable = 
+    aggregatedEvidence.supportingSources.length +
+    aggregatedEvidence.contradictingSources.length +
+    aggregatedEvidence.factCheckSources.length;
+  
+  // Also check raw scored sources — aggregation might have filtered too aggressively
+  const rawSourcesAvailable = scoredNewsSources.length + scoredFactCheckSources.length;
+  
+  if (totalSourcesAvailable === 0 && rawSourcesAvailable === 0) {
+    logger.warn("LangChain orchestration: NO sources found — returning UNVERIFIED", {
+      supportingCount: 0,
+      factCheckCount: 0,
       claimCategory: claimUnderstanding.claimCategory,
     });
     return {
@@ -230,12 +239,26 @@ export async function runVerificationOrchestrationPipeline(
         verdict: "UNVERIFIED" as VerificationVerdict,
         confidenceScore: 0,
         reasoning:
-          "No high-quality relevant sources were found to confirm or deny this claim. " +
-          "Increase source coverage or try again with a more specific headline.",
-        supportingSources: aggregatedEvidence.supportingSources,
-        contradictingSources: aggregatedEvidence.contradictingSources,
+          "No sources were found to verify this claim. " +
+          "Try rephrasing or providing more context.",
+        supportingSources: [],
+        contradictingSources: [],
       } satisfies VerdictBrainOutput,
     };
+  }
+  
+  // If aggregation filtered everything but we have raw sources, use them directly
+  // This prevents over-aggressive filtering from causing false UNVERIFIED results
+  if (totalSourcesAvailable === 0 && rawSourcesAvailable > 0) {
+    logger.warn("LangChain orchestration: aggregation filtered all sources, using raw sources", {
+      rawSourcesAvailable,
+      claimCategory: claimUnderstanding.claimCategory,
+    });
+    // Put all raw sources into supporting — let VerdictBrain classify them
+    aggregatedEvidence.supportingSources = scoredNewsSources;
+    aggregatedEvidence.factCheckSources = scoredFactCheckSources;
+    aggregatedEvidence.totalSourceCount = rawSourcesAvailable;
+    aggregatedEvidence.hasEnoughEvidence = true;
   }
 
   // ── Step 3b: Article Body Enrichment ────────────────────────────────────
