@@ -60,11 +60,10 @@ const CREDIBILITY_SCORING_HUMAN_TEMPLATE = `Score these {count} domains:
 
 // ─── LLM Scorer ───────────────────────────────────────────────────────────────
 
-// 8 domains per batch × ~6 tokens each = ~50 tokens of source data per call.
-// System prompt is ~180 tokens. Total well within Groq free-tier 6000 TPM.
-const CREDIBILITY_BATCH_SIZE = 8;
-// Small delay between batches to stay within the per-minute token budget.
-const INTER_BATCH_DELAY_MS = 1500;
+// Smaller batches + longer delays to stay within Groq free tier (6000 TPM)
+const CREDIBILITY_BATCH_SIZE = 5;  // Reduced from 8
+// Delay between batches to avoid rate limit
+const INTER_BATCH_DELAY_MS = 3000;  // Increased from 1500ms
 
 /**
  * Sends batches of domain names to the LLM and returns index-keyed scores.
@@ -191,69 +190,98 @@ function parseCredibilityScoringResponse(
 
 /**
  * Uses the LLM to evaluate and score all scraped news articles.
+ * 
+ * OPTIMIZATION: Use deterministic rule-based scoring for known sources to avoid
+ * hitting Groq rate limits. Only use LLM for unknown domains.
  */
 export async function scoreNewsArticleSources(
   scrapedArticles: ScrapedNewsArticle[]
 ): Promise<CredibilityScoredSource[]> {
   if (scrapedArticles.length === 0) return [];
 
-  logger.info("CredibilityScoringAgent: scoring news sources via LLM", {
+  const { classifySourceTier, getCredibilityScore } = await import(
+    "../services/source-tier-config"
+  );
+
+  logger.info("CredibilityScoringAgent: starting (rule-based + LLM fallback)", {
     inputCount: scrapedArticles.length,
   });
 
-  const input = scrapedArticles.map((a) => ({
-    url: a.url,
-    domain: a.sourceDomain && a.sourceDomain !== "unknown" ? a.sourceDomain : a.url,
-    title: a.title,
-    summary: a.summary,
+  // Separate known sources (can be scored deterministically) from unknown
+  const knownSources: ScrapedNewsArticle[] = [];
+  const unknownSources: ScrapedNewsArticle[] = [];
+
+  for (const article of scrapedArticles) {
+    const tier = classifySourceTier(article.url);
+    if (tier === "unknown") {
+      unknownSources.push(article);
+    } else {
+      knownSources.push(article);
+    }
+  }
+
+  // Score known sources deterministically (no LLM cost)
+  const knownScored: CredibilityScoredSource[] = knownSources.map((article) => ({
+    url: article.url,
+    title: article.title,
+    summary: article.summary,
+    credibilityScore: getCredibilityScore(article.url),
+    sourceTier: classifySourceTier(article.url),
   }));
 
-  const scoredSources = await scoreBatchViaLlm(input);
+  // Only use LLM for unknown sources
+  let unknownScored: CredibilityScoredSource[] = [];
+  if (unknownSources.length > 0) {
+    const input = unknownSources.map((a) => ({
+      url: a.url,
+      domain: a.sourceDomain && a.sourceDomain !== "unknown" ? a.sourceDomain : a.url,
+      title: a.title,
+      summary: a.summary,
+    }));
+
+    unknownScored = await scoreBatchViaLlm(input);
+  }
+
+  const allScored = [...knownScored, ...unknownScored];
 
   logger.info("CredibilityScoringAgent: scoring complete", {
     inputCount: scrapedArticles.length,
-    tier1Count: scoredSources.filter((s) => s.sourceTier === "tier1").length,
-    tier2Count: scoredSources.filter((s) => s.sourceTier === "tier2").length,
-    tier3Count: scoredSources.filter((s) => s.sourceTier === "tier3").length,
-    unknownCount: scoredSources.filter((s) => s.sourceTier === "unknown").length,
+    knownSources: knownSources.length,
+    unknownSources: unknownSources.length,
+    tier1Count: allScored.filter((s) => s.sourceTier === "tier1").length,
+    tier2Count: allScored.filter((s) => s.sourceTier === "tier2").length,
+    tier3Count: allScored.filter((s) => s.sourceTier === "tier3").length,
+    unknownCount: allScored.filter((s) => s.sourceTier === "unknown").length,
   });
 
-  return scoredSources;
+  return allScored;
 }
 
 // ─── Score Fact-Check Results ──────────────────────────────────────────────────
 
 /**
- * Scores fact-check results.  Fact-check organisations are inherently tier1
- * (their purpose is accuracy verification), so we assign a high fixed score
- * rather than burning an LLM call — the claimRating label is prepended to
- * the summary to give the VerdictBrainAgent explicit signal.
+ * Scores fact-check results using deterministic rules.
+ * Fact-check organizations are tier1 by definition.
  */
 export async function scoreFactCheckSources(
   scrapedFactChecks: ScrapedFactCheckResult[]
 ): Promise<CredibilityScoredSource[]> {
   if (scrapedFactChecks.length === 0) return [];
 
-  // Still route through the LLM so it can distinguish premier fact-checkers
-  // (Snopes, PolitiFact → 90+) from lesser-known ones (regional → 75–80).
-  const input = scrapedFactChecks.map((fc) => ({
-    url: fc.url,
-    domain: fc.sourceDomain,
-    title: fc.title,
-    summary: `${fc.claimRating ? `[Fact-check rating: ${fc.claimRating}] ` : ""}${fc.summary}`,
-  }));
+  const { getCredibilityScore } = await import(
+    "../services/source-tier-config"
+  );
 
-  logger.info("CredibilityScoringAgent: scoring fact-check sources via LLM", {
+  logger.info("CredibilityScoringAgent: scoring fact-check sources (rule-based)", {
     inputCount: scrapedFactChecks.length,
   });
 
-  const scored = await scoreBatchViaLlm(input);
-
-  // Guarantee tier1 for all fact-checkers regardless of LLM output —
-  // a score below 75 for a dedicated fact-checker would be wrong.
-  return scored.map((s) => ({
-    ...s,
+  // Use deterministic scoring — all fact-checkers are tier1
+  return scrapedFactChecks.map((fc) => ({
+    url: fc.url,
+    title: fc.title,
+    summary: `${fc.claimRating ? `[Fact-check rating: ${fc.claimRating}] ` : ""}${fc.summary}`,
+    credibilityScore: Math.max(75, getCredibilityScore(fc.url)),
     sourceTier: "tier1" as SourceTier,
-    credibilityScore: Math.max(75, s.credibilityScore),
   }));
 }
