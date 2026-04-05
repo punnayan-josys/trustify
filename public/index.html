@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Truthify — AI Fact Checker</title>
+  <style>
+    /* ── Reset & Base ──────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #21262d;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --accent:    #58a6ff;
+      --accent-dim:#1f3a5f;
+      --green:     #3fb950;
+      --green-bg:  #0f2d1a;
+      --red:       #f85149;
+      --red-bg:    #2d0f0f;
+      --yellow:    #d29922;
+      --yellow-bg: #2d2208;
+      --grey:      #8b949e;
+      --grey-bg:   #1c2128;
+      --radius:    12px;
+      --radius-sm: 8px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────────────────── */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 20px 0 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--accent), #a371f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .header-text h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .header-text p {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ── Chat area ─────────────────────────────────────────────────────────── */
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 0;
+      scroll-behavior: smooth;
+    }
+
+    .chat-area::-webkit-scrollbar { width: 6px; }
+    .chat-area::-webkit-scrollbar-track { background: transparent; }
+    .chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Empty state ───────────────────────────────────────────────────────── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 16px;
+      color: var(--muted);
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .empty-state .big-icon {
+      font-size: 48px;
+      opacity: 0.5;
+    }
+
+    .empty-state h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .empty-state p {
+      font-size: 14px;
+      max-width: 380px;
+    }
+
+    .examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .example-chip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      color: var(--text);
+    }
+
+    .example-chip:hover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    /* ── Message bubbles ───────────────────────────────────────────────────── */
+    .message {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 24px;
+      animation: fadeIn .25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* User query bubble */
+    .query-bubble {
+      align-self: flex-end;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius) var(--radius) 4px var(--radius);
+      padding: 10px 16px;
+      max-width: 80%;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    /* Result card */
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    /* ── Verdict banner ────────────────────────────────────────────────────── */
+    .verdict-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .verdict-banner.TRUE    { background: var(--green-bg); }
+    .verdict-banner.FALSE   { background: var(--red-bg); }
+    .verdict-banner.MISLEADING { background: var(--yellow-bg); }
+    .verdict-banner.UNVERIFIED { background: var(--grey-bg); }
+
+    .verdict-icon { font-size: 22px; flex-shrink: 0; }
+    .verdict-label {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: .5px;
+    }
+    .verdict-label.TRUE    { color: var(--green); }
+    .verdict-label.FALSE   { color: var(--red); }
+    .verdict-label.MISLEADING { color: var(--yellow); }
+    .verdict-label.UNVERIFIED { color: var(--grey); }
+
+    .confidence-pill {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: rgba(255,255,255,.07);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* ── Reasoning ─────────────────────────────────────────────────────────── */
+    .reasoning-section {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .reasoning-text {
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    /* ── Sources ───────────────────────────────────────────────────────────── */
+    .sources-section {
+      padding: 14px 18px;
+    }
+
+    .sources-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all .15s;
+    }
+
+    .tab-btn.active {
+      background: var(--surface2);
+      color: var(--text);
+      border-color: var(--accent);
+    }
+
+    .tab-btn .count {
+      display: inline-block;
+      background: var(--surface2);
+      border-radius: 10px;
+      padding: 0 6px;
+      margin-left: 4px;
+      font-size: 11px;
+    }
+
+    .tab-btn.active .count {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .source-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .source-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color .15s, background .15s;
+    }
+
+    .source-item:hover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .source-favicon {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      margin-top: 2px;
+      object-fit: contain;
+    }
+
+    .source-favicon-fallback {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      margin-top: 2px;
+      background: var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      color: var(--muted);
+    }
+
+    .source-body { flex: 1; min-width: 0; }
+
+    .source-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+
+    .source-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+
+    .source-domain {
+      font-size: 11px;
+      color: var(--accent);
+    }
+
+    .source-summary-snippet {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      margin-top: 5px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .cred-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 2px;
+    }
+
+    .cred-bar {
+      flex: 1;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--border);
+      overflow: hidden;
+      max-width: 80px;
+    }
+
+    .cred-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--green), var(--accent));
+      transition: width .4s ease;
+    }
+
+    .cred-score {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .ext-icon {
+      font-size: 11px;
+      color: var(--muted);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .no-sources {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 20px;
+    }
+
+    /* ── Meta row (timestamp + id) ─────────────────────────────────────────── */
+    .meta-row {
+      padding: 8px 18px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .meta-item {
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .cache-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: rgba(210,153,34,.12);
+      color: var(--yellow);
+    }
+
+    /* ── Spinner ──────────────────────────────────────────────────────────── */
+    .thinking-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .spinner {
+      width: 22px;
+      height: 22px;
+      border: 2.5px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ── Error card ────────────────────────────────────────────────────────── */
+    .error-card {
+      background: var(--red-bg);
+      border: 1px solid var(--red);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      font-size: 14px;
+      color: var(--red);
+    }
+
+    /* ── Input area ────────────────────────────────────────────────────────── */
+    .input-area {
+      border-top: 1px solid var(--border);
+      padding: 16px 0 20px;
+      flex-shrink: 0;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    .input-wrap {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      transition: border-color .15s;
+    }
+
+    .input-wrap:focus-within {
+      border-color: var(--accent);
+    }
+
+    textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 15px;
+      font-family: inherit;
+      resize: none;
+      line-height: 1.5;
+      max-height: 140px;
+      min-height: 24px;
+    }
+
+    textarea::placeholder { color: var(--muted); }
+
+    .send-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      background: var(--accent);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background .15s, transform .1s;
+    }
+
+    .send-btn:hover:not(:disabled) { background: #79b8ff; }
+    .send-btn:active:not(:disabled) { transform: scale(.95); }
+    .send-btn:disabled { background: var(--border); cursor: not-allowed; }
+
+    .send-btn svg { width: 16px; height: 16px; fill: #0d1117; }
+
+    .input-hint {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 6px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">🔍</div>
+    <div class="header-text">
+      <h1>Truthify</h1>
+      <p>AI-powered news fact checker</p>
+    </div>
+  </header>
+
+  <!-- Chat area -->
+  <div class="chat-area" id="chatArea">
+    <div class="empty-state" id="emptyState">
+      <div class="big-icon">🔍</div>
+      <h2>What would you like to verify?</h2>
+      <p>Type any news headline or claim and Truthify will scrape live sources, analyse evidence, and give you a verdict.</p>
+      <div class="examples">
+        <button class="example-chip" onclick="fillExample(this)">India won 2026 T20 World Cup</button>
+        <button class="example-chip" onclick="fillExample(this)">Modi is prime minister of India</button>
+        <button class="example-chip" onclick="fillExample(this)">Pakistan won 2026 T20 worldcup</button>
+        <button class="example-chip" onclick="fillExample(this)">Dewald Brevis got injured for IPL 2026</button>
+        <button class="example-chip" onclick="fillExample(this)">Trump is current president of America</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="input-area">
+    <div class="input-row">
+      <div class="input-wrap">
+        <textarea
+          id="queryInput"
+          placeholder="Enter a headline or claim to fact-check…"
+          rows="1"
+          onkeydown="handleKey(event)"
+          oninput="autoResize(this)"
+        ></textarea>
+        <button class="send-btn" id="sendBtn" onclick="submitQuery()" title="Verify (Enter)">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <p class="input-hint">Press Enter to verify · Shift+Enter for new line</p>
+  </div>
+
+</div>
+
+<script>
+  const API_URL = '/api/v1/verify';
+  let isLoading = false;
+
+  // ── Auto-resize textarea ──────────────────────────────────────────────────
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+  }
+
+  // ── Fill example ──────────────────────────────────────────────────────────
+  function fillExample(btn) {
+    const input = document.getElementById('queryInput');
+    input.value = btn.textContent.trim();
+    autoResize(input);
+    input.focus();
+  }
+
+  // ── Handle Enter key ──────────────────────────────────────────────────────
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitQuery();
+    }
+  }
+
+  // ── Main submit ───────────────────────────────────────────────────────────
+  async function submitQuery() {
+    const input = document.getElementById('queryInput');
+    const query = input.value.trim();
+    if (!query || isLoading) return;
+
+    // Hide empty state
+    document.getElementById('emptyState')?.remove();
+
+    const chatArea = document.getElementById('chatArea');
+
+    // Append user bubble
+    const msgEl = document.createElement('div');
+    msgEl.className = 'message';
+    msgEl.innerHTML = `<div class="query-bubble">${escapeHtml(query)}</div>`;
+    chatArea.appendChild(msgEl);
+
+    // Append thinking indicator
+    const thinkingEl = buildThinking();
+    msgEl.appendChild(thinkingEl);
+
+    // Clear + disable input
+    input.value = '';
+    input.style.height = 'auto';
+    setLoading(true);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ headline: query }),
+      });
+
+      const json = await res.json();
+
+      // Remove thinking card
+      thinkingEl.remove();
+
+      if (!json.success || !json.data) {
+        msgEl.appendChild(buildError(json.error || 'Unknown error from server.'));
+      } else {
+        msgEl.appendChild(buildResultCard(json.data));
+      }
+    } catch (err) {
+      thinkingEl.remove();
+      msgEl.appendChild(buildError('Could not reach the Truthify API. Is the server running on port 8000?'));
+    }
+
+    setLoading(false);
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  // ── Set loading state ─────────────────────────────────────────────────────
+  function setLoading(state) {
+    isLoading = state;
+    const btn = document.getElementById('sendBtn');
+    const input = document.getElementById('queryInput');
+    btn.disabled = state;
+    input.disabled = state;
+  }
+
+  // ── Build thinking card ───────────────────────────────────────────────────
+  function buildThinking() {
+    const el = document.createElement('div');
+    el.className = 'result-card thinking-card';
+    el.innerHTML = `<div class="spinner"></div>`;
+    return el;
+  }
+
+  // ── Build error card ──────────────────────────────────────────────────────
+  function buildError(msg) {
+    const el = document.createElement('div');
+    el.className = 'error-card';
+    el.textContent = '⚠️  ' + msg;
+    return el;
+  }
+
+  // ── Build result card ─────────────────────────────────────────────────────
+  function buildResultCard(data) {
+    const { verdict, confidenceScore, reasoning,
+            supportingSources = [], contradictingSources = [],
+            factCheckSources = [], cachedResult, createdAt,
+            verificationId } = data;
+
+    const icon   = verdictIcon(verdict);
+    const allSrc = [...supportingSources, ...contradictingSources, ...factCheckSources];
+
+    const el = document.createElement('div');
+    el.className = 'result-card';
+
+    // Verdict banner
+    el.innerHTML = `
+      <div class="verdict-banner ${verdict}">
+        <span class="verdict-icon">${icon}</span>
+        <span class="verdict-label ${verdict}">${verdict}</span>
+        <span class="confidence-pill">Confidence ${confidenceScore}%</span>
+      </div>
+
+      <div class="reasoning-section">
+        <div class="section-label">Reasoning</div>
+        <div class="reasoning-text">${escapeHtml(reasoning)}</div>
+      </div>
+
+      <div class="sources-section" id="src-${verificationId}">
+        <div class="section-label">Evidence Sources</div>
+        <div class="sources-tabs">
+          <button class="tab-btn active" onclick="showTab('${verificationId}','all')">
+            All <span class="count">${allSrc.length}</span>
+          </button>
+          <button class="tab-btn" onclick="showTab('${verificationId}','supporting')">
+            Supporting <span class="count">${supportingSources.length}</span>
+          </button>
+          ${contradictingSources.length > 0 ? `
+          <button class="tab-btn" onclick="showTab('${verificationId}','contradicting')">
+            Contradicting <span class="count">${contradictingSources.length}</span>
+          </button>` : ''}
+          ${factCheckSources.length > 0 ? `
+          <button class="tab-btn" onclick="showTab('${verificationId}','factcheck')">
+            Fact-checks <span class="count">${factCheckSources.length}</span>
+          </button>` : ''}
+        </div>
+        <div class="source-list" id="srclist-${verificationId}">
+          ${allSrc.length ? renderSourceList(allSrc) : '<div class="no-sources">No sources found for this claim.</div>'}
+        </div>
+      </div>
+
+      <div class="meta-row">
+        ${cachedResult ? '<span class="cache-badge">⚡ Cached</span>' : ''}
+        <span class="meta-item">🕐 ${new Date(createdAt).toLocaleTimeString()}</span>
+        <span class="meta-item" style="font-family:monospace;font-size:10px;color:var(--muted)">
+          ${verificationId.slice(0,8)}
+        </span>
+      </div>
+    `;
+
+    // Stash data for tab switching
+    el.dataset.all           = JSON.stringify(allSrc);
+    el.dataset.supporting    = JSON.stringify(supportingSources);
+    el.dataset.contradicting = JSON.stringify(contradictingSources);
+    el.dataset.factcheck     = JSON.stringify(factCheckSources);
+
+    return el;
+  }
+
+  // ── Tab switching ─────────────────────────────────────────────────────────
+  function showTab(id, tab) {
+    const container = document.getElementById('src-' + id);
+    if (!container) return;
+
+    // Update active tab button
+    container.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.remove('active');
+      if (btn.getAttribute('onclick').includes(`'${tab}'`)) {
+        btn.classList.add('active');
+      }
+    });
+
+    // Get card element (parent of sources-section)
+    const card = container.closest('.result-card');
+    const sources = JSON.parse(card.dataset[tab] || '[]');
+    const listEl = document.getElementById('srclist-' + id);
+    listEl.innerHTML = sources.length
+      ? renderSourceList(sources)
+      : '<div class="no-sources">No sources in this category.</div>';
+  }
+
+  // ── Render source list HTML ───────────────────────────────────────────────
+  function truncateSnippet(text, maxLen) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+    if (t.length <= maxLen) return t;
+    return t.slice(0, maxLen - 1).trimEnd() + '…';
+  }
+
+  function renderSourceList(sources) {
+    return sources.map(s => {
+      const domain = extractDomain(s.url);
+      const favicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+      const cred = Math.max(0, Math.min(100, s.credibilityScore || 0));
+      const snippet = truncateSnippet(s.summary, 180);
+
+      return `
+        <a class="source-item" href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">
+          <img
+            class="source-favicon"
+            src="${favicon}"
+            alt=""
+            onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'source-favicon-fallback',textContent:'🌐'}))"
+          />
+          <div class="source-body">
+            <div class="source-title">${escapeHtml(s.title || 'Untitled')}</div>
+            <div class="source-meta">
+              <span class="source-domain">${escapeHtml(domain)}</span>
+              ${s.relevanceScore != null ? `<span style="font-size:10px;color:var(--muted)">relevance ${s.relevanceScore}%</span>` : ''}
+            </div>
+            ${snippet ? `<div class="source-summary-snippet">${escapeHtml(snippet)}</div>` : ''}
+            <div class="cred-bar-wrap">
+              <div class="cred-bar">
+                <div class="cred-fill" style="width:${cred}%"></div>
+              </div>
+              <span class="cred-score">reliability ${cred}</span>
+            </div>
+          </div>
+          <span class="ext-icon">↗</span>
+        </a>
+      `;
+    }).join('');
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function verdictIcon(v) {
+    return { TRUE: '✅', FALSE: '❌', MISLEADING: '⚠️', UNVERIFIED: '❓' }[v] || '❓';
+  }
+
+  function extractDomain(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); }
+    catch { return 'unknown'; }
+  }
+
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>

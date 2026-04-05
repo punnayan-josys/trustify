@@ -1,0 +1,97 @@
+# ─── Truthify Infrastructure Stack ───────────────────────────────────────────
+#
+# Services:
+#   postgresql       - Persistent storage for verification results
+#   redis            - Result cache (24-hour TTL)
+#   temporal         - Workflow orchestration server
+#   temporal-ui      - Temporal web dashboard (localhost:8080)
+#
+# NOTE: The application services (api, worker) are NOT included here.
+# Run them separately with: npm run dev  /  npm run worker
+# This keeps the dev loop fast — restart app without rebuilding infra.
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgresql:
+    image: postgres:16-alpine
+    container_name: truthify-postgresql
+    environment:
+      POSTGRES_DB: truthify
+      POSTGRES_USER: truthify_user
+      POSTGRES_PASSWORD: local_dev_password_change_in_production
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U truthify_user -d truthify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: truthify-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Temporal Server ────────────────────────────────────────────────────────
+  # Uses postgres12 backend (SQLite is not supported in auto-setup:1.24+).
+  # Temporal will auto-create its own databases (temporal, temporal_visibility)
+  # inside the shared PostgreSQL container on first start.
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: truthify-temporal
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_SEEDS=postgresql
+      - POSTGRES_USER=truthify_user
+      - POSTGRES_PWD=local_dev_password_change_in_production
+    ports:
+      - "7233:7233"   # gRPC API (used by SDK)
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $(hostname -i):7233 2>&1 | grep -q SERVING"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # ── Temporal Web UI ────────────────────────────────────────────────────────
+  temporal-ui:
+    image: temporalio/ui:2.48.1
+    container_name: truthify-temporal-ui
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    ports:
+      - "8080:8080"   # Web UI (open in browser)
+    depends_on:
+      temporal:
+        condition: service_healthy
+    restart: unless-stopped
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  postgresql-data:
+    driver: local
+  redis-data:
+    driver: local
+  temporal-data:
+    driver: local
