@@ -122,31 +122,6 @@
       max-width: 380px;
     }
 
-    .examples {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      justify-content: center;
-      margin-top: 8px;
-    }
-
-    .example-chip {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 6px 14px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: border-color .15s, background .15s;
-      color: var(--text);
-    }
-
-    .example-chip:hover {
-      border-color: var(--accent);
-      background: var(--accent-dim);
-      color: var(--accent);
-    }
-
     /* ── Message bubbles ───────────────────────────────────────────────────── */
     .message {
       display: flex;
@@ -602,11 +577,6 @@
         font-size: 13px;
       }
 
-      .example-chip {
-        font-size: 12px;
-        padding: 5px 12px;
-      }
-
       .query-bubble {
         max-width: 85%;
         font-size: 13px;
@@ -751,19 +721,6 @@
       .empty-state p {
         font-size: 12px;
         line-height: 1.5;
-      }
-
-      .examples {
-        flex-direction: column;
-        width: 100%;
-      }
-
-      .example-chip {
-        width: 100%;
-        text-align: left;
-        font-size: 12px;
-        padding: 8px 14px;
-        border-radius: 10px;
       }
 
       .query-bubble {
@@ -999,11 +956,6 @@
 
     /* Touch-friendly adjustments */
     @media (hover: none) and (pointer: coarse) {
-      .example-chip {
-        min-height: 36px;
-        padding: 8px 14px;
-      }
-
       .tab-btn {
         min-height: 32px;
         padding: 6px 12px;
@@ -1038,13 +990,6 @@
       <div class="big-icon">🔍</div>
       <h2>What would you like to verify?</h2>
       <p>Type any news headline or claim and Truthify will scrape live sources, analyse evidence, and give you a verdict.</p>
-      <div class="examples">
-        <button class="example-chip" onclick="fillExample(this)">India won 2026 T20 World Cup</button>
-        <button class="example-chip" onclick="fillExample(this)">Modi is prime minister of India</button>
-        <button class="example-chip" onclick="fillExample(this)">Pakistan won 2026 T20 worldcup</button>
-        <button class="example-chip" onclick="fillExample(this)">Dewald Brevis got injured for IPL 2026</button>
-        <button class="example-chip" onclick="fillExample(this)">Trump is current president of America</button>
-      </div>
     </div>
   </div>
 
@@ -1079,14 +1024,6 @@
   function autoResize(el) {
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 140) + 'px';
-  }
-
-  // ── Fill example ──────────────────────────────────────────────────────────
-  function fillExample(btn) {
-    const input = document.getElementById('queryInput');
-    input.value = btn.textContent.trim();
-    autoResize(input);
-    input.focus();
   }
 
   // ── Handle Enter key ──────────────────────────────────────────────────────
