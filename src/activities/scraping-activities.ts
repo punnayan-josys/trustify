@@ -58,53 +58,104 @@ export async function decomposeClaimActivity(
     const llm = getSharedLlmClient();
     const response = await llm.invoke([
       new SystemMessage(
-        `You are a fact-checking research assistant.
-Given a claim, generate exactly 4 search queries that together VERIFY or REFUTE it globally.
+        `You are an expert fact-checker who understands different types of claims require different search strategies.
 
-OBJECTIVE
-The queries must maximize coverage, reduce ambiguity, and surface both confirming and contradicting evidence.
+TASK: Analyze the claim type, then generate exactly 4 targeted search queries.
 
-GENERAL RULES
-* Queries must be concise and factual
-* Prefer neutral wording
-* Include year/time when applicable
-* Avoid repeating same phrasing
-* Include entity disambiguation if ambiguous (country, role, organization)
-* Ensure at least one query is designed to REFUTE the claim
-* Do NOT include quotes unless needed for exact phrase
-* Return ONLY a JSON array of exactly 4 strings
+CLAIM TYPE DETECTION (classify first):
+1. SPORTS: Match results, tournament winners, player stats, scores
+2. POLITICS: Office holders, elections, government positions, legislation  
+3. SCIENCE: Research findings, studies, medical claims, biology, physics, chemistry
+4. TECH: Product releases, company news, software updates, hardware specs
+5. MUSIC/ENTERTAINMENT: Album releases, awards, chart positions, performances
+6. HISTORICAL: Past events, dates, figures (older than 2 years)
+7. CURRENT_EVENT: Breaking news, recent incidents, ongoing situations
+8. FACT_CHECK: General factual claims, definitions, "is X true"
+9. CONTRADICTION: "X vs Y", debates, disputed claims, conflicting statements
+10. FUTURE: Predictions, scheduled events, rumors about upcoming things
 
-QUERY DECOMPOSITION STRATEGY
+SEARCH STRATEGY PER TYPE:
 
-Q1 — Canonical factual question
-Convert the claim into a precise answerable question.
-Examples: "Who is the current president of the United States", "Did India win ICC T20 World Cup 2026"
+SPORTS:
+Q1: "[Team/Player] [Tournament/Event] [Year] winner result"
+Q2: "[Tournament] [Year] final score official"
+Q3: "[League/Authority] official [Tournament] [Year] champion"
+Q4: "[Team/Player] lost [Tournament] [Year]" OR "who beat [Team]"
 
-Q2 — Direct entity verification search
-Pattern: "[entity] [claim context] official result confirmed"
-Examples: "India T20 World Cup 2026 winner official result", "current US president official government confirmation"
+POLITICS:
+Q1: "Who is current [Position] [Country/Organization] [Year]"
+Q2: "[Person] [Position] official government confirmed"
+Q3: "[Position] [Country] latest election result [Year]"
+Q4: "[Person] not [Position] who is current"
 
-Q3 — Broad independent confirmation
-Pattern: "[event/topic] winner result latest official"
-Examples: "ICC T20 World Cup 2026 final winner", "United States president current 2026"
+SCIENCE:
+Q1: "[Scientific claim] peer reviewed research"
+Q2: "[Topic] scientific consensus latest study"
+Q3: "[Claim] medical journal published"
+Q4: "[Claim] debunked false evidence"
 
-Q4 — Explicit refutation / contradiction search (MANDATORY)
-Search for evidence the claim is false.
-Pattern: "[entity] did not win" OR "[entity] lost" OR "[actual alternative entity]"
-Examples: "Who beat India T20 World Cup 2026 final", "Trump not president who is current US president"
+TECH:
+Q1: "[Product/Company] [Claim] official announcement"
+Q2: "[Product] release date confirmed [Year]"
+Q3: "[Tech news site] [Product] review specs"
+Q4: "[Product] cancelled delayed postponed"
 
-DOMAIN HANDLING
-Sports: include winner, final, champion, result
-Politics: include current, official, government, sworn in
-Events: include confirmed, report, official statement
+MUSIC/ENTERTAINMENT:
+Q1: "[Artist] [Album/Award] [Year] winner"
+Q2: "[Award ceremony] [Year] official results"
+Q3: "[Chart name] top position [Song] [Year]"
+Q4: "[Artist] did not win [Award]"
 
-TIME HANDLING
-* If claim implies "current", include "latest" or present year
-* If claim includes year, preserve it in all 4 queries
-* If no time provided, append "latest"
+HISTORICAL:
+Q1: "[Event] [Date/Year] what happened"
+Q2: "[Historical figure] [Event] historical records"
+Q3: "[Event] confirmed sources encyclopedia"
+Q4: "[Event] myth false historical accuracy"
 
-OUTPUT FORMAT
-Return ONLY: ["query1","query2","query3","query4"]`
+CURRENT_EVENT:
+Q1: "[Event] latest news [Location] [Date]"
+Q2: "[Event] official report statement"
+Q3: "[News agency] [Event] confirmed"
+Q4: "[Event] false hoax fact check"
+
+FACT_CHECK:
+Q1: "Is [Claim] true verified"
+Q2: "[Subject] facts encyclopedia reliable"
+Q3: "[Claim] scientific explanation"
+Q4: "[Claim] false myth debunked"
+
+CONTRADICTION:
+Q1: "[Topic] expert consensus"
+Q2: "[Side A] vs [Side B] evidence"
+Q3: "[Topic] fact check both sides"
+Q4: "[Topic] resolved final answer"
+
+FUTURE:
+Q1: "[Event] scheduled official date"
+Q2: "[Entity] confirmed announcement [Event]"
+Q3: "[Event] rumors speculation fact check"
+Q4: "[Event] cancelled postponed not happening"
+
+GENERAL RULES:
+- Use neutral, factual language
+- Include year/date when present in claim
+- Include "official" or "confirmed" for authority
+- Always include 1 refutation query (Q4)
+- Keep queries 5-12 words
+- No quotes unless exact phrase match needed
+
+OUTPUT FORMAT:
+Return ONLY a JSON array: ["query1","query2","query3","query4"]
+
+Example outputs:
+Claim: "Did India win 2026 T20 World Cup?"
+["India 2026 T20 World Cup winner result", "2026 T20 World Cup final score official", "ICC 2026 T20 World Cup champion official", "who beat India 2026 T20 World Cup final"]
+
+Claim: "Trump is current president"
+["Who is current president United States 2026", "Trump president official government confirmed", "United States president latest election result 2026", "Trump not president who is current"]
+
+Claim: "Is Krebs cycle only aerobic?"
+["Krebs cycle aerobic anaerobic conditions research", "Krebs cycle scientific consensus peer reviewed", "cellular respiration Krebs cycle conditions study", "Krebs cycle anaerobic false debunked"]`
       ),
       new HumanMessage(`Claim: "${headline}"`),
     ]);

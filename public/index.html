@@ -1143,7 +1143,11 @@
       }
     } catch (err) {
       thinkingEl.remove();
-      msgEl.appendChild(buildError('Could not reach the Truthify API. Is the server running on port 8000?'));
+      // Show user-friendly network error
+      const errorMsg = err instanceof TypeError && err.message.includes('fetch')
+        ? 'Unable to connect to the verification service. Please check your internet connection and try again.'
+        : 'An unexpected error occurred. Please try again.';
+      msgEl.appendChild(buildError(errorMsg));
     }
 
     setLoading(false);

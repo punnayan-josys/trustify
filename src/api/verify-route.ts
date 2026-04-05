@@ -48,8 +48,7 @@ verifyRouter.post(
   headlineValidationRules,
   async (
     request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
   ): Promise<void> => {
     // ── 1. Validate input ──────────────────────────────────────────────────
     const validationErrors = validationResult(request);
@@ -148,11 +147,34 @@ verifyRouter.post(
 
       response.status(200).json(successResponse);
     } catch (routeError) {
-      logger.error("POST /api/v1/verify: unexpected error", {
-        errorMessage: (routeError as Error).message,
-        stack: (routeError as Error).stack,
+      const error = routeError as Error;
+      
+      // Map technical errors to user-friendly messages
+      let userMessage = "Something went wrong while verifying your claim. Please try again.";
+      
+      if (error.message.includes("timeout") || error.message.includes("TIMEOUT")) {
+        userMessage = "The verification is taking longer than expected. Please try again in a moment.";
+      } else if (error.message.includes("rate limit") || error.message.includes("429")) {
+        userMessage = "Our system is currently busy. Please wait a moment and try again.";
+      } else if (error.message.includes("connection") || error.message.includes("ENOTFOUND")) {
+        userMessage = "We're having trouble connecting to our verification services. Please try again shortly.";
+      } else if (error.message.includes("workflow") || error.message.includes("activity")) {
+        userMessage = "Unable to complete verification at this time. Please try again.";
+      }
+      
+      logger.error("POST /api/v1/verify: verification failed", {
+        errorMessage: error.message,
+        errorType: error.name,
+        stack: error.stack,
       });
-      next(routeError);
+      
+      const errorResponse: VerifyHeadlineResponse = {
+        success: false,
+        data: null,
+        error: userMessage,
+      };
+      
+      response.status(500).json(errorResponse);
     }
   }
 );
